@@ -16,18 +16,25 @@ class FIPSParser:
 
     BASE_URL = "https://new.fips.ru/iiss/"
 
-    SELECTORS = {
-        "section_header": "db-selection-form:j_idt79",
+    # Text constants for finding elements
+    TEXT_LABELS = {
+        "section_header": "Патентные документы РФ (рус.)",
+        "search_button_value": "перейти к поиску",
+        "status_active": "Действует",
+        "status_may_terminate": "Может прекратить свое действие",
+        "status_terminated_recoverable": (
+            "Прекратил действие, но может быть восстановлен"
+        ),
+        "status_terminated": "Прекратил действие",
+    }
+
+    # Fallback selectors if text-based search fails
+    FALLBACK_SELECTORS = {
         "checkbox1": "db-selection-form:dbsGrid1:0:dbsGrid1checkbox",
         "checkbox4": "db-selection-form:dbsGrid1:3:dbsGrid1checkbox",
-        "search_button": "db-selection-form:j_idt96",
         "patent_owner_input": "fields:6:j_idt109",
         "search_form_button": "j_idt128",
         "next_page_button": "j_idt98:j_idt109",
-        "status_active": "fields:24:j_idt113:1:j_idt115",
-        "status_may_terminate": "fields:24:j_idt113:2:j_idt115",
-        "status_terminated_recoverable": "fields:24:j_idt113:3:j_idt115",
-        "status_terminated": "fields:24:j_idt113:4:j_idt115",
     }
 
     def __init__(
@@ -43,12 +50,60 @@ class FIPSParser:
 
     def _select_search_options(self) -> None:
         """Select required search options."""
-        self.driver_manager.click_element(self.SELECTORS["section_header"])
+        try:
+            # Try to find section header by text
+            section_header = self.driver_manager.find_element_by_text(
+                self.TEXT_LABELS["section_header"], "div"
+            )
+            self.driver_manager.driver.execute_script(
+                "arguments[0].click();", section_header
+            )
+        except Exception as e:
+            logger.warning(f"Failed to find section header by text: {e}")
+            # Try to find by partial ID as fallback
+            self.driver_manager.find_element_by_partial_id("db-selection-form").click()
+
         time.sleep(1)  # Wait for animation
 
-        self.driver_manager.click_element(self.SELECTORS["checkbox1"], By.NAME)
-        self.driver_manager.click_element(self.SELECTORS["checkbox4"], By.NAME)
-        self.driver_manager.click_element(self.SELECTORS["search_button"], By.NAME)
+        # Find checkboxes by partial ID
+        try:
+            checkbox1 = self.driver_manager.find_element_by_partial_id(
+                "dbsGrid1:0:dbsGrid1checkbox"
+            )
+            checkbox4 = self.driver_manager.find_element_by_partial_id(
+                "dbsGrid1:3:dbsGrid1checkbox"
+            )
+
+            self.driver_manager.driver.execute_script(
+                "arguments[0].click();", checkbox1
+            )
+            self.driver_manager.driver.execute_script(
+                "arguments[0].click();", checkbox4
+            )
+        except Exception as e:
+            logger.warning(f"Failed to find checkboxes by partial ID: {e}")
+            # Fallback to original selectors
+            self.driver_manager.click_element(
+                self.FALLBACK_SELECTORS["checkbox1"], By.NAME
+            )
+            self.driver_manager.click_element(
+                self.FALLBACK_SELECTORS["checkbox4"], By.NAME
+            )
+
+        # Find search button by value
+        try:
+            search_button = self.driver_manager.find_button_by_value(
+                self.TEXT_LABELS["search_button_value"]
+            )
+            self.driver_manager.driver.execute_script(
+                "arguments[0].click();", search_button
+            )
+        except Exception as e:
+            logger.warning(f"Failed to find search button by value: {e}")
+            # Try to find by partial ID as fallback
+            self.driver_manager.click_element(
+                self.FALLBACK_SELECTORS["search_button"], By.NAME
+            )
 
     def _set_status_filters(self) -> None:
         """Set status filter checkboxes according to options."""
@@ -59,33 +114,60 @@ class FIPSParser:
             "status_terminated": self.status_options.terminated,
         }
 
-        for selector_name, should_be_checked in status_mapping.items():
+        for status_key, should_be_checked in status_mapping.items():
             try:
-                element = self.driver_manager.wait_for_element(
-                    self.SELECTORS[selector_name], By.ID
+                # Try to find checkbox by label text
+                element = self.driver_manager.find_checkbox_by_label(
+                    self.TEXT_LABELS[status_key]
                 )
                 is_checked = element.is_selected()
 
                 # Click only if current state doesn't match desired state
                 if is_checked != should_be_checked:
-                    element.click()
+                    self.driver_manager.driver.execute_script(
+                        "arguments[0].click();", element
+                    )
                     time.sleep(0.5)
 
             except Exception as e:
-                logger.warning(f"Error setting status checkbox {selector_name}: {e}")
+                logger.warning(f"Error setting status checkbox {status_key}: {e}")
+                # No fallback for status checkboxes as they're critical
 
     def _fill_search_form(self, query: str) -> None:
         """Fill and submit search form."""
-        search_input = self.driver_manager.wait_for_element(
-            self.SELECTORS["patent_owner_input"]
-        )
+        try:
+            # Try to find patent owner input by partial ID
+            search_input = self.driver_manager.find_element_by_partial_id(
+                "fields:6:j_idt"
+            )
+        except Exception as e:
+            logger.debug(f"Failed to find patent owner input by partial ID: {e}")
+            # Fallback to original selector
+            search_input = self.driver_manager.wait_for_element(
+                self.FALLBACK_SELECTORS["patent_owner_input"]
+            )
+
         search_input.clear()
         search_input.send_keys(query)
         time.sleep(0.5)
 
         self._set_status_filters()
 
-        self.driver_manager.click_element(self.SELECTORS["search_form_button"], By.NAME)
+        try:
+            # Try to find search form button by partial ID
+            search_form_button = self.driver_manager.find_element_by_partial_id(
+                "j_idt128"
+            )
+            self.driver_manager.driver.execute_script(
+                "arguments[0].click();", search_form_button
+            )
+        except Exception as e:
+            logger.debug(f"Failed to find search form button by partial ID: {e}")
+            # Fallback to original selector
+            self.driver_manager.click_element(
+                self.FALLBACK_SELECTORS["search_form_button"], By.NAME
+            )
+
         logger.info("Search form submitted")
 
     def _get_patent_details(self, patent_id: str) -> Dict:
@@ -190,7 +272,8 @@ class FIPSParser:
         try:
             spk_div = self.driver_manager.driver.find_element(By.CLASS_NAME, "spk")
             details["СПК"] = spk_div.text.strip()
-        except:
+        except Exception as e:
+            logger.debug(f"Failed to find SPK element: {e}")
             pass
 
         # Process all paragraphs
@@ -240,7 +323,8 @@ class FIPSParser:
             self.driver_manager.driver.switch_to.window(
                 self.driver_manager.driver.window_handles[0]
             )
-        except:
+        except Exception as e:
+            logger.debug(f"Failed to close window or switch to main window: {e}")
             pass
 
     def _parse_search_results(self, page_number: int) -> List[PatentResult]:
@@ -292,12 +376,21 @@ class FIPSParser:
     def _has_next_page(self) -> bool:
         """Check if there is a next page of results."""
         try:
-            next_button = self.driver_manager.wait_for_element(
-                self.SELECTORS["next_page_button"]
+            # Try to find next page button by partial ID
+            next_button = self.driver_manager.find_element_by_partial_id(
+                "j_idt98:j_idt109"
             )
             return "ui-state-disabled" not in next_button.get_attribute("class")
-        except:
-            return False
+        except Exception as e:
+            try:
+                # Fallback to original selector
+                next_button = self.driver_manager.wait_for_element(
+                    self.FALLBACK_SELECTORS["next_page_button"]
+                )
+                return "ui-state-disabled" not in next_button.get_attribute("class")
+            except Exception as e2:
+                logger.debug(f"Failed to check for next page: {e2} (after {e})")
+                return False
 
     def collect_all_results(self) -> List[PatentResult]:
         """Collect all patent results across pages."""
@@ -324,14 +417,31 @@ class FIPSParser:
     def _go_to_next_page(self) -> bool:
         """Navigate to next page if available."""
         if self._has_next_page():
-            self.driver_manager.click_element(self.SELECTORS["next_page_button"])
+            try:
+                # Try to find next page button by partial ID
+                next_button = self.driver_manager.find_element_by_partial_id(
+                    "j_idt98:j_idt109"
+                )
+                self.driver_manager.driver.execute_script(
+                    "arguments[0].click();", next_button
+                )
+            except Exception as e:
+                logger.debug(f"Failed to find next page button by partial ID: {e}")
+                # Fallback to original selector
+                self.driver_manager.click_element(
+                    self.FALLBACK_SELECTORS["next_page_button"]
+                )
+
             self.driver_manager.wait_for_page_load()
             return True
         return False
 
     def start_search(
         self,
-        query: str = "аэрогидродинамический or (аэрогидродинамический институт) or (цаги not научно)",
+        query: str = (
+            "аэрогидродинамический or (аэрогидродинамический институт) "
+            "or (цаги not научно)"
+        ),
     ) -> List[PatentResult]:
         """Start patent search process."""
         try:

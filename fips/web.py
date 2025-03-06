@@ -40,3 +40,55 @@ class WebDriverManager:
             lambda driver: driver.execute_script("return document.readyState")
             == "complete"
         )
+
+    def find_element_by_text(self, text: str, element_type: str = "*") -> WebElement:
+        """Find element by its text content.
+
+        Args:
+            text: Text to search for
+            element_type: HTML tag to search in (default: any tag)
+
+        Returns:
+            WebElement if found
+        """
+        xpath = f"//{element_type}[contains(text(), '{text}')]"
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_element_by_partial_id(self, id_part: str) -> WebElement:
+        """Find element by partial ID match.
+
+        Args:
+            id_part: Part of the ID to search for
+
+        Returns:
+            WebElement if found
+        """
+        xpath = f"//*[contains(@id, '{id_part}')]"
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_checkbox_by_label(self, label_text: str) -> WebElement:
+        """Find checkbox by its label text.
+
+        Args:
+            label_text: Text of the label associated with checkbox
+
+        Returns:
+            WebElement (checkbox) if found
+        """
+        xpath = (
+            f"//label[contains(text(), '{label_text}')]"
+            f"/preceding-sibling::input[@type='checkbox'][1]"
+        )
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_button_by_value(self, value: str) -> WebElement:
+        """Find button by its value attribute.
+
+        Args:
+            value: Value attribute of the button
+
+        Returns:
+            WebElement if found
+        """
+        xpath = f"//input[@type='submit' and contains(@value, '{value}')]"
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
