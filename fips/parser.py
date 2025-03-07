@@ -58,15 +58,14 @@ class FIPSParser:
             section_header = self.driver_manager.find_element_by_text(
                 self.TEXT_LABELS["section_header"], "div"
             )
-            self.driver_manager.driver.execute_script(
-                "arguments[0].click();", section_header
-            )
+            self.driver_manager.click_element(section_header)
         except Exception as e:
             logger.warning(f"Failed to find section header by text: {e}")
             # Try to find by class as fallback
-            self.driver_manager.find_element_by_class_and_text(
+            header = self.driver_manager.find_element_by_class_and_text(
                 "name", self.TEXT_LABELS["section_header"]
-            ).click()
+            )
+            self.driver_manager.click_element(header)
 
         time.sleep(1)  # Wait for animation
 
@@ -81,12 +80,8 @@ class FIPSParser:
                 self.CSS_CLASSES["checkbox_container"], 3
             )
 
-            self.driver_manager.driver.execute_script(
-                "arguments[0].click();", checkbox1
-            )
-            self.driver_manager.driver.execute_script(
-                "arguments[0].click();", checkbox4
-            )
+            self.driver_manager.click_element(checkbox1)
+            self.driver_manager.click_element(checkbox4)
         except Exception as e:
             logger.error(f"Failed to find checkboxes: {e}")
 
@@ -95,9 +90,7 @@ class FIPSParser:
             search_button = self.driver_manager.find_button_by_value(
                 self.TEXT_LABELS["search_button_value"]
             )
-            self.driver_manager.driver.execute_script(
-                "arguments[0].click();", search_button
-            )
+            self.driver_manager.click_element(search_button)
         except Exception as e:
             logger.warning(f"Failed to find search button by value: {e}")
             # Try to find button in container
@@ -106,7 +99,7 @@ class FIPSParser:
             ).click()
 
     def _set_status_filters(self) -> None:
-        """Set status filter checkboxes according to options."""
+        """Set status filters based on configuration."""
         status_mapping = {
             "status_active": self.status_options.active,
             "status_may_terminate": self.status_options.may_terminate,
@@ -124,9 +117,7 @@ class FIPSParser:
 
                 # Click only if current state doesn't match desired state
                 if is_checked != should_be_checked:
-                    self.driver_manager.driver.execute_script(
-                        "arguments[0].click();", element
-                    )
+                    self.driver_manager.click_element(element)
                     time.sleep(0.5)
 
             except Exception as e:
@@ -158,9 +149,7 @@ class FIPSParser:
             search_form_button = self.driver_manager.driver.find_element(
                 By.CSS_SELECTOR, "input[type='submit'][value='Поиск']"
             )
-            self.driver_manager.driver.execute_script(
-                "arguments[0].click();", search_form_button
-            )
+            self.driver_manager.click_element(search_form_button)
         except Exception as e:
             logger.error(f"Failed to find search form button: {e}")
             raise
@@ -172,12 +161,7 @@ class FIPSParser:
         try:
             # Open patent details in new tab
             patent_url = f"{self.BASE_URL}document.xhtml?id={patent_id}"
-            self.driver_manager.driver.execute_script(
-                f'window.open("{patent_url}","_blank");'
-            )
-            self.driver_manager.driver.switch_to.window(
-                self.driver_manager.driver.window_handles[-1]
-            )
+            self.driver_manager.open_url_in_new_tab(patent_url)
 
             self.driver_manager.wait_for_element("StatusR")
             self.driver_manager.wait_for_element("bib")
@@ -392,30 +376,6 @@ class FIPSParser:
             logger.warning(f"Error creating PatentResult: {e}")
             return None
 
-    def _has_next_page(self) -> bool:
-        """Check if there is a next page of results."""
-        try:
-            # Try to find next page button
-            next_button = self.driver_manager.driver.find_element(
-                By.CSS_SELECTOR, "a.ui-commandlink.ui-widget.modern-page-next"
-            )
-
-            # Check if button is disabled
-            disabled = "ui-state-disabled" in next_button.get_attribute(
-                "class"
-            ) or "disabled" in next_button.get_attribute("class")
-
-            # Also check if onclick attribute is empty or None
-            onclick = next_button.get_attribute("onclick")
-            if not onclick or onclick == "return false;":
-                return False
-
-            return not disabled
-
-        except Exception as e:
-            logger.debug(f"Failed to check for next page: {e}")
-            return False
-
     def collect_all_results(self) -> List[PatentResult]:
         """Collect all patent results across pages."""
         page = 1
@@ -469,8 +429,6 @@ class FIPSParser:
 
     def _go_to_next_page(self) -> bool:
         """Navigate to next page if available."""
-        if not self._has_next_page():
-            return False
 
         try:
             try:
@@ -490,10 +448,7 @@ class FIPSParser:
             except Exception:
                 logger.error("Failed to find next page button")
 
-            # Use JavaScript click which is more reliable
-            self.driver_manager.driver.execute_script(
-                "arguments[0].click();", next_button
-            )
+            self.driver_manager.click_element(next_button)
 
             # Wait for specific elements to indicate page has loaded
             try:

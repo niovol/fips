@@ -28,9 +28,12 @@ class WebDriverManager:
         """Wait for element to be present and return it."""
         return self.wait.until(EC.presence_of_element_located((by, selector)))
 
-    def click_element(self, selector: str, by: By = By.ID) -> None:
-        """Click element using JavaScript."""
-        element = self.wait_for_element(selector, by)
+    def click_element(self, element: WebElement) -> None:
+        """Click element using JavaScript for better reliability.
+
+        Args:
+            element: WebElement to click
+        """
         self.driver.execute_script("arguments[0].click();", element)
         time.sleep(0.5)  # Small delay after click
 
@@ -180,40 +183,11 @@ class WebDriverManager:
         )
         return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
 
-    def find_next_page_button(self) -> WebElement:
-        """Find next page button using specific class and text.
+    def open_url_in_new_tab(self, url: str) -> None:
+        """Open URL in a new tab and switch to it.
 
-        Returns:
-            WebElement: Next page button if found
+        Args:
+            url: URL to open
         """
-        # Direct selector based on the provided HTML structure
-        try:
-            # Try the most specific selector first (based on provided HTML)
-            return self.wait.until(
-                EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, "a.ui-commandlink.ui-widget.modern-page-next")
-                )
-            )
-        except Exception:
-            # Fallback to other common patterns
-            selectors = [
-                "//a[contains(@class, 'modern-page-next')]",
-                "//a[contains(@class, 'ui-paginator-next')]",
-                "//a[text()='›']",
-                "//div[contains(@class, 'paginator')]//a[contains(@class, 'next')]",
-            ]
-
-            for selector in selectors:
-                try:
-                    return self.wait.until(
-                        EC.element_to_be_clickable((By.XPATH, selector))
-                    )
-                except Exception:
-                    continue
-
-            # Last resort - try to find by the specific ID pattern from the example
-            try:
-                return self.driver.find_element(By.CSS_SELECTOR, "[id$=':j_idt109']")
-            except Exception:
-                # If all strategies fail, try to find by partial ID
-                return self.find_element_by_partial_id("j_idt")
+        self.driver.execute_script(f'window.open("{url}","_blank");')
+        self.driver.switch_to.window(self.driver.window_handles[-1])
