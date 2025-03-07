@@ -431,46 +431,41 @@ class FIPSParser:
         """Navigate to next page if available."""
 
         try:
-            try:
-                next_button = self.driver_manager.driver.find_element(
-                    By.CSS_SELECTOR, "a.ui-commandlink.ui-widget.modern-page-next"
-                )
+            next_button = self.driver_manager.driver.find_element(
+                By.CSS_SELECTOR, "a.ui-commandlink.ui-widget.modern-page-next"
+            )
 
-                # Check if button is disabled
-                disabled = "ui-state-disabled" in next_button.get_attribute(
-                    "class"
-                ) or "disabled" in next_button.get_attribute("class")
+            # Check if button is disabled
+            disabled = "ui-state-disabled" in next_button.get_attribute(
+                "class"
+            ) or "disabled" in next_button.get_attribute("class")
 
-                # Also check if onclick attribute is empty or None
-                onclick = next_button.get_attribute("onclick")
-                if disabled or not onclick or onclick == "return false;":
-                    return False
-            except Exception:
-                logger.error("Failed to find next page button")
-
-            self.driver_manager.click_element(next_button)
-
-            # Wait for specific elements to indicate page has loaded
-            try:
-                # Wait for results to load (more specific than generic page load)
-                WebDriverWait(self.driver_manager.driver, 10).until(
-                    EC.presence_of_element_located(
-                        (By.CSS_SELECTOR, ".search-result-item")
-                    )
-                )
-            except Exception:
-                # Fallback to generic page load wait
-                logger.warning(
-                    "Failed to wait for results to load, falling back to page load"
-                )
-                self.driver_manager.wait_for_page_load()
-
-            # Short pause to ensure page is fully interactive
-            time.sleep(0.5)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to navigate to next page: {e}")
+            # Also check if onclick attribute is empty or None
+            onclick = next_button.get_attribute("onclick")
+            if disabled or not onclick or onclick == "return false;":
+                return False
+        except Exception:
+            logger.info("No next page button found")
             return False
+
+        self.driver_manager.click_element(next_button)
+
+        # Wait for specific elements to indicate page has loaded
+        try:
+            # Wait for results to load (more specific than generic page load)
+            WebDriverWait(self.driver_manager.driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".search-result-item"))
+            )
+        except Exception:
+            # Fallback to generic page load wait
+            logger.warning(
+                "Failed to wait for results to load, falling back to page load"
+            )
+            self.driver_manager.wait_for_page_load()
+
+        # Short pause to ensure page is fully interactive
+        time.sleep(0.5)
+        return True
 
     def start_search(
         self,

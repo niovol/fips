@@ -80,18 +80,6 @@ class WebDriverManager:
         xpath = f"//{element_type}[contains(text(), '{text}')]"
         return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
 
-    def find_element_by_partial_id(self, id_part: str) -> WebElement:
-        """Find element by partial ID match.
-
-        Args:
-            id_part: Part of the ID to search for
-
-        Returns:
-            WebElement if found
-        """
-        xpath = f"//*[contains(@id, '{id_part}')]"
-        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
-
     def find_checkbox_by_label(self, label_text: str) -> WebElement:
         """Find checkbox by its label text.
 
