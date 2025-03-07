@@ -34,12 +34,35 @@ class WebDriverManager:
         self.driver.execute_script("arguments[0].click();", element)
         time.sleep(0.5)  # Small delay after click
 
-    def wait_for_page_load(self) -> None:
-        """Wait for page to complete loading."""
-        self.wait.until(
-            lambda driver: driver.execute_script("return document.readyState")
-            == "complete"
-        )
+    def wait_for_page_load(self, timeout: int = 20) -> None:
+        """Wait for page to complete loading with improved reliability.
+
+        Args:
+            timeout: Maximum time to wait in seconds
+        """
+        # Wait for document ready state
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                lambda driver: driver.execute_script("return document.readyState")
+                == "complete"
+            )
+
+            # Also wait for jQuery to complete (if present)
+            try:
+                WebDriverWait(self.driver, 5).until(
+                    lambda driver: driver.execute_script(
+                        "return typeof jQuery !== 'undefined' && jQuery.active === 0"
+                    )
+                )
+            except Exception:
+                # jQuery may not be present, which is fine
+                pass
+
+            # Wait a short time for any animations to complete
+            time.sleep(0.3)
+        except Exception as e:
+            # Log but continue if timeout occurs
+            print(f"Warning: Page load wait timed out: {e}")
 
     def find_element_by_text(self, text: str, element_type: str = "*") -> WebElement:
         """Find element by its text content.
@@ -92,3 +115,105 @@ class WebDriverManager:
         """
         xpath = f"//input[@type='submit' and contains(@value, '{value}')]"
         return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_element_by_class_and_text(self, class_name: str, text: str) -> WebElement:
+        """Find element by its class and text content.
+
+        Args:
+            class_name: CSS class name
+            text: Text to search for
+
+        Returns:
+            WebElement if found
+        """
+        xpath = f"//*[contains(@class, '{class_name}') and contains(text(), '{text}')]"
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_input_by_parent_text(self, parent_text: str) -> WebElement:
+        """Find input element by text in its parent element.
+
+        Args:
+            parent_text: Text in parent element
+
+        Returns:
+            WebElement (input) if found
+        """
+        xpath = (
+            f"//div[contains(@class, 'oneblock')]"
+            f"//div[contains(@class, 'name')][contains(., '{parent_text}')]"
+            f"/following-sibling::div[contains(@class, 'input')]//input"
+        )
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_checkbox_by_position(
+        self, container_class: str, position: int
+    ) -> WebElement:
+        """Find checkbox by its position in a container.
+
+        Args:
+            container_class: Class of the container
+            position: Position of the checkbox (0-based)
+
+        Returns:
+            WebElement (checkbox) if found
+        """
+        xpath = (
+            f"(//*[contains(@class, '{container_class}')]//input[@type='checkbox'])"
+            f"[{position + 1}]"
+        )
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_button_in_container(
+        self, container_class: str, button_type: str = "submit"
+    ) -> WebElement:
+        """Find button in a container.
+
+        Args:
+            container_class: Class of the container
+            button_type: Type of the button (default: submit)
+
+        Returns:
+            WebElement (button) if found
+        """
+        xpath = (
+            f"//*[contains(@class, '{container_class}')]//input[@type='{button_type}']"
+        )
+        return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
+
+    def find_next_page_button(self) -> WebElement:
+        """Find next page button using specific class and text.
+
+        Returns:
+            WebElement: Next page button if found
+        """
+        # Direct selector based on the provided HTML structure
+        try:
+            # Try the most specific selector first (based on provided HTML)
+            return self.wait.until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, "a.ui-commandlink.ui-widget.modern-page-next")
+                )
+            )
+        except Exception:
+            # Fallback to other common patterns
+            selectors = [
+                "//a[contains(@class, 'modern-page-next')]",
+                "//a[contains(@class, 'ui-paginator-next')]",
+                "//a[text()='›']",
+                "//div[contains(@class, 'paginator')]//a[contains(@class, 'next')]",
+            ]
+
+            for selector in selectors:
+                try:
+                    return self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                except Exception:
+                    continue
+
+            # Last resort - try to find by the specific ID pattern from the example
+            try:
+                return self.driver.find_element(By.CSS_SELECTOR, "[id$=':j_idt109']")
+            except Exception:
+                # If all strategies fail, try to find by partial ID
+                return self.find_element_by_partial_id("j_idt")

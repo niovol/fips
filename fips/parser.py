@@ -4,6 +4,8 @@ from typing import Dict, List, Optional
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 from fips.logger import logger
 from fips.models import PatentHeader, PatentResult, StatusOptions
@@ -26,15 +28,16 @@ class FIPSParser:
             "Прекратил действие, но может быть восстановлен"
         ),
         "status_terminated": "Прекратил действие",
+        "patent_owner_label": "Патентообладатель",
+        "status_label": "Статус документа",
     }
 
-    # Fallback selectors if text-based search fails
-    FALLBACK_SELECTORS = {
-        "checkbox1": "db-selection-form:dbsGrid1:0:dbsGrid1checkbox",
-        "checkbox4": "db-selection-form:dbsGrid1:3:dbsGrid1checkbox",
-        "patent_owner_input": "fields:6:j_idt109",
-        "search_form_button": "j_idt128",
-        "next_page_button": "j_idt98:j_idt109",
+    # CSS classes for finding elements
+    CSS_CLASSES = {
+        "checkbox_container": "oneline",
+        "button_container": "button-set",
+        "search_form": "fields",
+        "status_container": "oneblock",
     }
 
     def __init__(
@@ -60,18 +63,22 @@ class FIPSParser:
             )
         except Exception as e:
             logger.warning(f"Failed to find section header by text: {e}")
-            # Try to find by partial ID as fallback
-            self.driver_manager.find_element_by_partial_id("db-selection-form").click()
+            # Try to find by class as fallback
+            self.driver_manager.find_element_by_class_and_text(
+                "name", self.TEXT_LABELS["section_header"]
+            ).click()
 
         time.sleep(1)  # Wait for animation
 
-        # Find checkboxes by partial ID
+        # Find checkboxes by their position in the container
         try:
-            checkbox1 = self.driver_manager.find_element_by_partial_id(
-                "dbsGrid1:0:dbsGrid1checkbox"
+            # First checkbox (Рефераты российских изобретений)
+            checkbox1 = self.driver_manager.find_checkbox_by_position(
+                self.CSS_CLASSES["checkbox_container"], 0
             )
-            checkbox4 = self.driver_manager.find_element_by_partial_id(
-                "dbsGrid1:3:dbsGrid1checkbox"
+            # Fourth checkbox (Формулы российских полезных моделей)
+            checkbox4 = self.driver_manager.find_checkbox_by_position(
+                self.CSS_CLASSES["checkbox_container"], 3
             )
 
             self.driver_manager.driver.execute_script(
@@ -81,14 +88,7 @@ class FIPSParser:
                 "arguments[0].click();", checkbox4
             )
         except Exception as e:
-            logger.warning(f"Failed to find checkboxes by partial ID: {e}")
-            # Fallback to original selectors
-            self.driver_manager.click_element(
-                self.FALLBACK_SELECTORS["checkbox1"], By.NAME
-            )
-            self.driver_manager.click_element(
-                self.FALLBACK_SELECTORS["checkbox4"], By.NAME
-            )
+            logger.error(f"Failed to find checkboxes: {e}")
 
         # Find search button by value
         try:
@@ -100,10 +100,10 @@ class FIPSParser:
             )
         except Exception as e:
             logger.warning(f"Failed to find search button by value: {e}")
-            # Try to find by partial ID as fallback
-            self.driver_manager.click_element(
-                self.FALLBACK_SELECTORS["search_button"], By.NAME
-            )
+            # Try to find button in container
+            self.driver_manager.find_button_in_container(
+                self.CSS_CLASSES["button_container"]
+            ).click()
 
     def _set_status_filters(self) -> None:
         """Set status filter checkboxes according to options."""
@@ -130,43 +130,40 @@ class FIPSParser:
                     time.sleep(0.5)
 
             except Exception as e:
-                logger.warning(f"Error setting status checkbox {status_key}: {e}")
-                # No fallback for status checkboxes as they're critical
+                logger.error(f"Failed to set status checkbox: {e}")
 
     def _fill_search_form(self, query: str) -> None:
         """Fill and submit search form."""
         try:
-            # Try to find patent owner input by partial ID
-            search_input = self.driver_manager.find_element_by_partial_id(
-                "fields:6:j_idt"
+            # Find patent owner input field by label text
+            search_input = self.driver_manager.find_input_by_parent_text(
+                self.TEXT_LABELS["patent_owner_label"]
             )
-        except Exception as e:
-            logger.debug(f"Failed to find patent owner input by partial ID: {e}")
-            # Fallback to original selector
-            search_input = self.driver_manager.wait_for_element(
-                self.FALLBACK_SELECTORS["patent_owner_input"]
-            )
+            logger.info("Found patent owner input field by label text")
 
+        except Exception as e:
+            logger.error(f"Failed to find patent owner: {e}")
+            raise
+
+        # Clear the field and enter the query
         search_input.clear()
         search_input.send_keys(query)
+        logger.info(f"Entered query into patent owner field: {query}")
         time.sleep(0.5)
 
         self._set_status_filters()
 
         try:
-            # Try to find search form button by partial ID
-            search_form_button = self.driver_manager.find_element_by_partial_id(
-                "j_idt128"
+            # Try to find search form submit button
+            search_form_button = self.driver_manager.driver.find_element(
+                By.CSS_SELECTOR, "input[type='submit'][value='Поиск']"
             )
             self.driver_manager.driver.execute_script(
                 "arguments[0].click();", search_form_button
             )
         except Exception as e:
-            logger.debug(f"Failed to find search form button by partial ID: {e}")
-            # Fallback to original selector
-            self.driver_manager.click_element(
-                self.FALLBACK_SELECTORS["search_form_button"], By.NAME
-            )
+            logger.error(f"Failed to find search form button: {e}")
+            raise
 
         logger.info("Search form submitted")
 
@@ -330,26 +327,48 @@ class FIPSParser:
     def _parse_search_results(self, page_number: int) -> List[PatentResult]:
         """Parse patents from current search results page."""
         results = []
-        time.sleep(2)  # Wait for content to load
 
+        # Use explicit wait instead of sleep
+        try:
+            # Wait for search results to appear with explicit timeout
+            WebDriverWait(self.driver_manager.driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "a.tr"))
+            )
+        except Exception as e:
+            logger.warning(f"Timeout waiting for search results: {e}")
+            return results
+
+        # Find all patent elements
         elements = self.driver_manager.driver.find_elements(By.CSS_SELECTOR, "a.tr")
+        if not elements:
+            logger.warning("No patent elements found on page")
+            return results
+
         if self.test_mode:
             elements = elements[:5]
+            logger.info(f"Test mode: limiting to {len(elements)} patents")
 
+        # Process each patent element
         for element in elements:
             try:
                 patent = self._parse_patent_element(element)
                 if patent:
                     results.append(patent)
+
+                    # Get and save patent details
                     details = self._get_patent_details(patent.link_id)
-                    self.storage.save_patent_details(patent.number, details)
-                    self.storage.save_patent_to_csv(patent)
-                    logger.info(f"Processed patent {patent.number}")
+                    if details:
+                        self.storage.save_patent_details(patent.number, details)
+                        self.storage.save_patent_to_csv(patent)
+                        logger.info(f"Processed patent {patent.number}")
+                    else:
+                        logger.warning(
+                            f"Failed to get details for patent {patent.number}"
+                        )
             except Exception as e:
                 logger.warning(f"Error parsing patent element: {e}")
                 continue
 
-        logger.info(f"Found {len(results)} results on page {page_number}")
         return results
 
     def _parse_patent_element(self, element: WebElement) -> Optional[PatentResult]:
@@ -376,65 +395,127 @@ class FIPSParser:
     def _has_next_page(self) -> bool:
         """Check if there is a next page of results."""
         try:
-            # Try to find next page button by partial ID
-            next_button = self.driver_manager.find_element_by_partial_id(
-                "j_idt98:j_idt109"
+            # Try to find next page button
+            next_button = self.driver_manager.driver.find_element(
+                By.CSS_SELECTOR, "a.ui-commandlink.ui-widget.modern-page-next"
             )
-            return "ui-state-disabled" not in next_button.get_attribute("class")
-        except Exception as e:
-            try:
-                # Fallback to original selector
-                next_button = self.driver_manager.wait_for_element(
-                    self.FALLBACK_SELECTORS["next_page_button"]
-                )
-                return "ui-state-disabled" not in next_button.get_attribute("class")
-            except Exception as e2:
-                logger.debug(f"Failed to check for next page: {e2} (after {e})")
+
+            # Check if button is disabled
+            disabled = "ui-state-disabled" in next_button.get_attribute(
+                "class"
+            ) or "disabled" in next_button.get_attribute("class")
+
+            # Also check if onclick attribute is empty or None
+            onclick = next_button.get_attribute("onclick")
+            if not onclick or onclick == "return false;":
                 return False
+
+            return not disabled
+
+        except Exception as e:
+            logger.debug(f"Failed to check for next page: {e}")
+            return False
 
     def collect_all_results(self) -> List[PatentResult]:
         """Collect all patent results across pages."""
         page = 1
         all_results = []
+        max_retries = 3
 
         while True:
             logger.info(f"Processing page {page}")
-            results = self._parse_search_results(page)
-            all_results.extend(results)
 
+            # Try to parse results with retries
+            retry_count = 0
+            results = []
+
+            while retry_count < max_retries and not results:
+                try:
+                    results = self._parse_search_results(page)
+                    if not results and retry_count < max_retries - 1:
+                        logger.warning(f"No results found on page {page}, retrying...")
+                        time.sleep(1)
+                except Exception as e:
+                    logger.error(f"Error parsing page {page}: {e}")
+                    if retry_count < max_retries - 1:
+                        logger.info(f"Retrying page {page}...")
+                        time.sleep(1)
+
+                retry_count += 1
+
+            # Add results to collection
+            if results:
+                all_results.extend(results)
+                logger.info(f"Found {len(results)} results on page {page}")
+            else:
+                logger.warning(
+                    f"No results found on page {page} after {max_retries} attempts"
+                )
+
+            # Exit conditions
             if self.test_mode and page >= 3:
+                logger.info("Test mode: stopping after 3 pages")
                 break
 
+            # Try to go to next page
             if not self._go_to_next_page():
+                logger.info("No more pages available")
                 break
 
             page += 1
-            time.sleep(2)
 
         logger.info(f"Total results collected: {len(all_results)}")
         return all_results
 
     def _go_to_next_page(self) -> bool:
         """Navigate to next page if available."""
-        if self._has_next_page():
+        if not self._has_next_page():
+            return False
+
+        try:
             try:
-                # Try to find next page button by partial ID
-                next_button = self.driver_manager.find_element_by_partial_id(
-                    "j_idt98:j_idt109"
-                )
-                self.driver_manager.driver.execute_script(
-                    "arguments[0].click();", next_button
-                )
-            except Exception as e:
-                logger.debug(f"Failed to find next page button by partial ID: {e}")
-                # Fallback to original selector
-                self.driver_manager.click_element(
-                    self.FALLBACK_SELECTORS["next_page_button"]
+                next_button = self.driver_manager.driver.find_element(
+                    By.CSS_SELECTOR, "a.ui-commandlink.ui-widget.modern-page-next"
                 )
 
-            self.driver_manager.wait_for_page_load()
+                # Check if button is disabled
+                disabled = "ui-state-disabled" in next_button.get_attribute(
+                    "class"
+                ) or "disabled" in next_button.get_attribute("class")
+
+                # Also check if onclick attribute is empty or None
+                onclick = next_button.get_attribute("onclick")
+                if disabled or not onclick or onclick == "return false;":
+                    return False
+            except Exception:
+                logger.error("Failed to find next page button")
+
+            # Use JavaScript click which is more reliable
+            self.driver_manager.driver.execute_script(
+                "arguments[0].click();", next_button
+            )
+
+            # Wait for specific elements to indicate page has loaded
+            try:
+                # Wait for results to load (more specific than generic page load)
+                WebDriverWait(self.driver_manager.driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, ".search-result-item")
+                    )
+                )
+            except Exception:
+                # Fallback to generic page load wait
+                logger.warning(
+                    "Failed to wait for results to load, falling back to page load"
+                )
+                self.driver_manager.wait_for_page_load()
+
+            # Short pause to ensure page is fully interactive
+            time.sleep(0.5)
             return True
-        return False
+        except Exception as e:
+            logger.error(f"Failed to navigate to next page: {e}")
+            return False
 
     def start_search(
         self,
