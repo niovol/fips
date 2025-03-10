@@ -90,7 +90,7 @@ class WebDriverManager:
             WebElement (checkbox) if found
         """
         xpath = (
-            f"//label[contains(text(), '{label_text}')]"
+            f"//label[normalize-space(text())='{label_text}']"
             f"/preceding-sibling::input[@type='checkbox'][1]"
         )
         return self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
